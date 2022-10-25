@@ -1,7 +1,7 @@
 const logger = require('@vue/cli-shared-utils')
 const webpack = require('webpack')
 const CopyWebpackPlugin = require('copy-webpack-plugin')
-const ExtensionReloader = require('webpack-extension-reloader')
+const ExtensionReloader = require('webpack-ext-reloader')
 const ZipPlugin = require('zip-webpack-plugin')
 const { keyExists } = require('./lib/signing-key')
 const manifestTransformer = require('./lib/manifest')
@@ -10,12 +10,12 @@ const defaultOptions = {
   componentOptions: {},
   extensionReloaderOptions: {},
   manifestSync: ['version'],
-  manifestTransformer: null
+  manifestTransformer: null,
 }
 const performanceAssetFilterList = [
   (file) => !/\.map$/.test(file),
   (file) => !file.endsWith('.zip'),
-  (file) => !/^icons\//.test(file)
+  (file) => !/^icons\//.test(file),
 ]
 
 module.exports = (api, options) => {
@@ -57,25 +57,31 @@ module.exports = (api, options) => {
   api.chainWebpack((webpackConfig) => {
     const isLegacyBundle = process.env.VUE_CLI_MODERN_MODE && !process.env.VUE_CLI_MODERN_BUILD
     // Ignore rewriting names for background and content scripts
-    webpackConfig.output.filename((file) =>
-      `js/[name]${isLegacyBundle ? `-legacy` : ``}${isProduction && options.filenameHashing && !userScripts.includes(file.chunk.name) ? '.[contenthash:8]' : ''}.js`
+    webpackConfig.output.filename(
+      (file) =>
+        `js/[name]${isLegacyBundle ? `-legacy` : ``}${
+          isProduction && options.filenameHashing && !userScripts.includes(file.chunk.name) ? '.[contenthash:8]' : ''
+        }.js`
     )
     webpackConfig.merge({ entry })
 
+    // Workaround for https://github.com/mozilla/webextension-polyfill/issues/68
     webpackConfig.plugin('copy-manifest').use(CopyWebpackPlugin, [
-      [
-        {
-          from: './src/manifest.json',
-          to: 'manifest.json',
-          transform: manifestTransformer(api, pluginOptions, packageJson)
-        }
-      ]
+      {
+        patterns: [
+          {
+            from: './src/manifest.json',
+            to: 'manifest.json',
+            transform: manifestTransformer(api, pluginOptions, packageJson),
+          },
+        ],
+      },
     ])
 
     webpackConfig.plugin('provide-webextension-polyfill').use(webpack.ProvidePlugin, [
       {
-        browser: 'webextension-polyfill'
-      }
+        browser: 'webextension-polyfill',
+      },
     ])
 
     // Workaround for https://github.com/mozilla/webextension-polyfill/issues/68
@@ -93,7 +99,11 @@ module.exports = (api, options) => {
       )
 
       if (hasKeyFile) {
-        webpackConfig.plugin('copy-signing-key').use(CopyWebpackPlugin, [[{ from: keyFile, to: 'key.pem' }]])
+        webpackConfig.plugin('copy-signing-key').use(CopyWebpackPlugin, [
+          {
+            patterns: [{ from: keyFile, to: 'key.pem' }],
+          },
+        ])
       } else {
         logger.warn('No `key.pem` file detected. This is problematic only if you are publishing an existing extension')
       }
@@ -105,7 +115,7 @@ module.exports = (api, options) => {
         filename = pluginOptions.artifactFilename({
           name: packageJson.name,
           version: packageJson.version,
-          mode: api.service.mode
+          mode: api.service.mode,
         })
       } else {
         filename = `${packageJson.name}-v${packageJson.version}-${api.service.mode}.zip`
@@ -113,8 +123,8 @@ module.exports = (api, options) => {
       webpackConfig.plugin('zip-browser-extension').use(ZipPlugin, [
         {
           path: api.resolve(pluginOptions.artifactsDir || 'artifacts'),
-          filename: filename
-        }
+          filename: filename,
+        },
       ])
     }
 
@@ -125,8 +135,8 @@ module.exports = (api, options) => {
     }
 
     if (webpackConfig.plugins.has('copy')) {
-      webpackConfig.plugin('copy').tap(args => {
-        args[0][0].ignore.push('browser-extension.html')
+      webpackConfig.plugin('copy').tap((args) => {
+        args[0].patterns[0].globOptions.ignore.push('browser-extension.html')
         return args
       })
     }
@@ -134,7 +144,11 @@ module.exports = (api, options) => {
 
   api.configureWebpack((webpackConfig) => {
     const omitUserScripts = ({ name }) => !userScripts.includes(name)
-    if (webpackConfig.optimization && webpackConfig.optimization.splitChunks && webpackConfig.optimization.splitChunks.cacheGroups) {
+    if (
+      webpackConfig.optimization &&
+      webpackConfig.optimization.splitChunks &&
+      webpackConfig.optimization.splitChunks.cacheGroups
+    ) {
       if (webpackConfig.optimization.splitChunks.cacheGroups.vendors) {
         webpackConfig.optimization.splitChunks.cacheGroups.vendors.chunks = omitUserScripts
       }

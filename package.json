@@ -28,7 +28,7 @@
     "copy-webpack-plugin": "^9.0.1",
     "webextension-polyfill": "^0.9.0",
     "webpack": "^5.54.0",
-    "webpack-ext-reloader": "^1.1.8",
+    "webpack-ext-reloader": "https://github.com/zhuqling/webpack-ext-reloader.git",
     "zip-webpack-plugin": "^4.0.1"
   }
 }
